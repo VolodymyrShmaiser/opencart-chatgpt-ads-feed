@@ -2,6 +2,11 @@
 
 This file follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-11-23
+
+### Fixed
+- HTML entities such as `&nbsp;` no longer appear in product titles and descriptions. OpenCart stores this text HTML-escaped, so it is now decoded twice.
+
 ## [1.0.0] - 2026-11-23
 
 ### Added
