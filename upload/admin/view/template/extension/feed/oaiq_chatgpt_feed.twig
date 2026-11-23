@@ -1,0 +1,138 @@
+{{ header }}{{ column_left }}
+{% set P = 'feed_oaiq_chatgpt_feed_' %}
+{% set fmt_opts = '' %}{% for x in ['csv','tsv','jsonl'] %}{% set fmt_opts = fmt_opts ~ '<option value="' ~ x ~ '"' ~ (format == x ? ' selected' : '') ~ '>' ~ x|upper ~ '</option>' %}{% endfor %}
+{% set id_opts = '' %}{% for x in ['product_id','sku','model'] %}{% set id_opts = id_opts ~ '<option value="' ~ x ~ '"' ~ (id_source == x ? ' selected' : '') ~ '>' ~ x ~ '</option>' %}{% endfor %}
+{% set cur_opts = '' %}{% for c in currencies %}{% set cur_opts = cur_opts ~ '<option value="' ~ c.code ~ '"' ~ (currency == c.code ? ' selected' : '') ~ '>' ~ c.code ~ '</option>' %}{% endfor %}
+<div id="content">
+  <div class="page-header"><div class="container-fluid">
+    <div class="pull-right">
+      <button type="submit" form="form-feed" class="btn btn-primary" title="{{ button_save }}"><i class="fa fa-save"></i></button>
+      <a href="{{ cancel }}" class="btn btn-default" title="{{ button_cancel }}"><i class="fa fa-reply"></i></a>
+    </div>
+    <h1>{{ heading_title }}</h1>
+    <ul class="breadcrumb">{% for b in breadcrumbs %}<li><a href="{{ b.href }}">{{ b.text }}</a></li>{% endfor %}</ul>
+  </div></div>
+  <div class="container-fluid">
+    {% if error_warning %}<div class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> {{ error_warning|e }}</div>{% endif %}
+    {% if success %}<div class="alert alert-success"><i class="fa fa-check-circle"></i> {{ success }}</div>{% endif %}
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-link"></i> Feed URL / Cron</h3></div>
+      <div class="panel-body">
+        <p><b>Hosted feed URL</b> (paste into ChatGPT Ads Manager → Hosted URL):<br><input id="oaiq-feed-url" class="form-control" readonly value="{{ feed_url|e }}" onclick="this.select()"></p>
+        <div id="oaiq-publish-msg">{% if publish_error %}<div class="alert alert-danger">Could not publish the feed file: {{ publish_error|e }}. Make the site root or the <code>image/</code> folder writable by PHP.</div>
+        {% elseif not feed_published %}<div class="alert alert-warning">The feed file is not published yet. Save settings and click <b>Rebuild now</b>.</div>{% endif %}</div>
+        <p class="help-block">The feed rebuilds itself automatically (every <i>Cache, hours</i>) from normal shop traffic. No cron is needed.</p>
+        <details><summary>Optional: server cron</summary><p>For a shop with very little traffic you can also call this once a day:<br><code>0 3 * * * curl -s "{{ cron_url|e }}" &gt; /dev/null</code></p></details>
+        <p><button type="button" id="oaiq-rebuild" class="btn btn-info btn-sm">Rebuild now</button>
+           <a id="oaiq-open" href="{{ feed_url|e }}" target="_blank" class="btn btn-default btn-sm">Open feed</a>
+           <span id="oaiq-progress" style="margin-left:10px"></span></p>
+        <script>
+        (function () {
+          var url = {{ cron_url|json_encode|raw }};
+          var btn = document.getElementById('oaiq-rebuild'), out = document.getElementById('oaiq-progress');
+          function step(first) {
+            fetch(url + (first ? '&force=1' : ''), {credentials: 'omit'}).then(function (r) { return r.text().then(function (t) { try { return JSON.parse(t); } catch (e) { throw new Error('HTTP ' + r.status + ', not JSON: ' + (t.replace(/<[^>]+>/g, ' ').trim().slice(0, 300) || 'empty response (PHP fatal error or timeout, see error.log)')); } }); }).then(function (d) {
+              if (d.done) { if (d.fresh) { out.textContent = 'Feed is fresh (' + d.generated + ').'; btn.disabled = false; return; }
+                out.textContent = 'Done: ' + d.written + ' items, ' + d.skipped + ' skipped, ' + d.seconds + ' s.';
+                render(d); btn.disabled = false; return; }
+              if (d.error && !d.last_product_id) { out.textContent = d.error; }
+              else { out.textContent = 'Building... ' + d.written + ' items so far (product_id ' + d.last_product_id + ')'; }
+              setTimeout(function () { step(false); }, 1500);
+            }).catch(function (e) { out.textContent = 'Error: ' + e; btn.disabled = false; });
+          }
+          var catalog = {{ catalog_url|json_encode|raw }};
+          function esc(t) { var e = document.createElement('div'); e.textContent = t == null ? '' : String(t); return e.innerHTML; }
+          function render(d) {
+            var msg = document.getElementById('oaiq-publish-msg');
+            if (d.publish_error) {
+              msg.innerHTML = '<div class="alert alert-danger">Could not publish the feed file: ' + esc(d.publish_error) + '. Make the site root or the <code>image/</code> folder writable by PHP.</div>';
+            } else if (d.published) {
+              msg.innerHTML = '';
+              document.getElementById('oaiq-feed-url').value = catalog + d.published;
+              document.getElementById('oaiq-open').href = catalog + d.published;
+            }
+            var html = '<div class="well well-sm">Last build: ' + esc(d.generated) + ' — <b>' + esc(d.written) + '</b> items written, <b>' + esc(d.skipped) + '</b> skipped, ' + esc(d.seconds) + ' s.';
+            if (d.errors && d.errors.length) {
+              html += '<details><summary>Validation errors (first 50)</summary><pre style="max-height:300px;overflow:auto">' + d.errors.map(esc).join('\n') + '</pre></details>';
+            }
+            document.getElementById('oaiq-stats').innerHTML = html + '</div>';
+          }
+          btn.addEventListener('click', function () { btn.disabled = true; out.textContent = 'Starting...'; step(true); });
+        })();
+        </script>
+        <div id="oaiq-stats">{% if stats %}
+        <div class="well well-sm">Last build: {{ stats.generated|e }} — <b>{{ stats.written|e }}</b> items written, <b>{{ stats.skipped|e }}</b> skipped,
+          {{ stats.seconds|e }} s, {{ stats.memory_mb|e }} MB peak.
+          {% if stats.errors %}<details><summary>Validation errors (first 50)</summary><pre style="max-height:300px;overflow:auto">{% for e in stats.errors %}{{ e|e }}
+{% endfor %}</pre></details>{% endif %}
+        </div>
+        {% endif %}</div>
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><h3 class="panel-title"><i class="fa fa-pencil"></i> {{ text_edit }}</h3></div>
+      <div class="panel-body">
+        <form action="{{ action }}" method="post" id="form-feed" class="form-horizontal">
+          {% macro row(label, input, help) %}
+          <div class="form-group"><label class="col-sm-3 control-label">{{ label }}</label><div class="col-sm-9">{{ input|raw }}{% if help %}<p class="help-block">{{ help }}</p>{% endif %}</div></div>
+          {% endmacro %}
+          {% import _self as f %}
+
+          {{ f.row('Status', '<select name="' ~ P ~ 'status" class="form-control"><option value="1"' ~ (status ? ' selected' : '') ~ '>' ~ text_enabled ~ '</option><option value="0"' ~ (not status ? ' selected' : '') ~ '>' ~ text_disabled ~ '</option></select>') }}
+          <input type="hidden" name="{{ P }}key" value="{{ key|e }}">
+          {{ f.row('Format', '<select name="' ~ P ~ 'format" class="form-control">' ~ fmt_opts ~ '</select>') }}
+          {{ f.row('Cache, hours', '<input name="' ~ P ~ 'cache_hours" class="form-control" value="' ~ cache_hours|e ~ '">', 'The feed file is rebuilt on request when older than this.') }}
+          {{ f.row('Seller name', '<input name="' ~ P ~ 'seller_name" class="form-control" value="' ~ seller_name|e ~ '">') }}
+          {{ f.row('Default brand', '<input name="' ~ P ~ 'default_brand" class="form-control" value="' ~ default_brand|e ~ '">', 'Used when a product has no manufacturer. Empty = store name.') }}
+          {{ f.row('Store country', '<input name="' ~ P ~ 'store_country" class="form-control" value="' ~ store_country|e ~ '">', 'ISO alpha-2, e.g. US') }}
+          {{ f.row('Target countries', '<input name="' ~ P ~ 'target_countries" class="form-control" value="' ~ target_countries|e ~ '">', 'Comma-separated ISO alpha-2. ChatGPT Ads currently serves US.') }}
+          {{ f.row('Currency', '<select name="' ~ P ~ 'currency" class="form-control"><option value="">Store default</option>' ~ cur_opts ~ '</select>') }}
+          {{ f.row('Prices with tax', '<select name="' ~ P ~ 'with_tax" class="form-control"><option value="1"' ~ (with_tax ? ' selected' : '') ~ '>Yes</option><option value="0"' ~ (not with_tax ? ' selected' : '') ~ '>No</option></select>') }}
+          {{ f.row('item_id source', '<select name="' ~ P ~ 'id_source" class="form-control">' ~ id_opts ~ '</select>', 'Must stay stable. Do not change it after the feed is live.') }}
+          {{ f.row('Image size, px', '<input name="' ~ P ~ 'image_size" class="form-control" value="' ~ image_size|e ~ '">', '0 = original files from /image/. Otherwise resized square cache (slower on the first build).') }}
+          {{ f.row('Shipping price', '<input name="' ~ P ~ 'shipping_price" class="form-control" value="' ~ shipping_price|e ~ '">', 'Flat amount in feed currency. Empty = not sent (means unknown, not free).') }}
+          {{ f.row('Return policy URL', '<input name="' ~ P ~ 'return_policy" class="form-control" value="' ~ return_policy|e ~ '">') }}
+          {{ f.row('Return window, days', '<input name="' ~ P ~ 'return_days" class="form-control" value="' ~ return_days|e ~ '">') }}
+          {{ f.row('Privacy policy URL', '<input name="' ~ P ~ 'privacy_url" class="form-control" value="' ~ privacy_url|e ~ '">') }}
+          {{ f.row('Terms of service URL', '<input name="' ~ P ~ 'tos_url" class="form-control" value="' ~ tos_url|e ~ '">') }}
+          {{ f.row('is_ads_eligible', '<select name="' ~ P ~ 'ads_eligible" class="form-control"><option value="1"' ~ (ads_eligible ? ' selected' : '') ~ '>true</option><option value="0"' ~ (not ads_eligible ? ' selected' : '') ~ '>false</option></select>', 'ads_metadata: custom_label_0 = top category, custom_label_1 = on_sale, custom_label_2 = brand.') }}
+
+          <div class="form-group"><label class="col-sm-3 control-label">Out-of-stock status mapping</label><div class="col-sm-9">
+            {% for s in stock_statuses %}
+            <div class="row" style="margin-bottom:4px"><div class="col-sm-5">{{ s.name }}</div><div class="col-sm-7">
+              <select name="{{ P }}stock_map[{{ s.stock_status_id }}]" class="form-control input-sm">
+                {% for v in ['out_of_stock','in_stock','pre_order','backorder','unknown'] %}<option value="{{ v }}"{% if stock_map[s.stock_status_id] is defined and stock_map[s.stock_status_id] == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+              </select></div></div>
+            {% endfor %}
+            <p class="help-block">Used when quantity is 0 and stock is subtracted.</p>
+          </div></div>
+
+          <div class="form-group"><label class="col-sm-3 control-label">Categories</label><div class="col-sm-9">
+            <div class="well well-sm" style="height:220px;overflow:auto">
+              {% for c in all_categories %}
+              <div class="checkbox"><label><input type="checkbox" name="{{ P }}categories[]" value="{{ c.category_id }}"{% if c.category_id in categories %} checked{% endif %}> {{ c.name }}</label></div>
+              {% endfor %}
+            </div><p class="help-block">None selected = all categories.</p>
+          </div></div>
+          {{ f.row('Exclude product IDs', '<textarea name="' ~ P ~ 'exclude_ids" class="form-control" rows="2">' ~ exclude_ids|e ~ '</textarea>', 'Comma or space separated.') }}
+          <div class="form-group"><label class="col-sm-3 control-label">Variant options</label><div class="col-sm-9">
+            <div class="well well-sm" style="max-height:160px;overflow:auto">
+              {% for o in all_options %}
+              <div class="checkbox"><label><input type="checkbox" name="{{ P }}variant_options[]" value="{{ o.option_id }}"{% if o.option_id in variant_options %} checked{% endif %}> {{ o.name }}</label></div>
+              {% endfor %}
+            </div><p class="help-block">Each value (or combination) of these options becomes its own feed row with group_id, listing_has_variations and variant_dict. Max 100 per product. None = no variants.</p>
+          </div></div>
+
+          <legend>Delta API (price / availability updates)</legend>
+          {{ f.row('Delta API', '<select name="' ~ P ~ 'delta_status" class="form-control"><option value="1"' ~ (delta_status ? ' selected' : '') ~ '>' ~ text_enabled ~ '</option><option value="0"' ~ (not delta_status ? ' selected' : '') ~ '>' ~ text_disabled ~ '</option></select>', 'When enabled, saving a product in admin sends its price and availability to ChatGPT Ads.') }}
+          {{ f.row('Ads API key', '<input type="password" autocomplete="off" name="' ~ P ~ 'delta_api_key" class="form-control" placeholder="' ~ (delta_api_key_set ? 'saved, leave empty to keep' : '') ~ '" value="">', 'Ads Manager → ad account → Settings. Delta access must be enabled for the account.') }}
+          {{ f.row('Feed ID', '<input name="' ~ P ~ 'delta_feed_id" class="form-control" value="' ~ delta_feed_id|e ~ '">', 'e.g. fd_123, shown on the feed in Ads Manager.') }}
+          {{ f.row('Manual push', '<code>' ~ delta_url|e ~ '1,2,3</code>', 'Open with product IDs to push them now. Result is logged.') }}
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{{ footer }}
