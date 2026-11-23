@@ -792,6 +792,9 @@ class ControllerExtensionFeedOaiqChatgptFeed extends Controller {
 		$text = html_entity_decode((string)$html, ENT_QUOTES, 'UTF-8');
 		$text = preg_replace('#<(br|/p|/div|/li|/h\d)[^>]*>#i', ' ', $text);
 		$text = strip_tags($text);
+		// OpenCart stores descriptions HTML-escaped, so entities like &nbsp; survive the first decode.
+		$text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+		$text = str_replace("\xC2\xA0", ' ', $text);
 
 		return trim(preg_replace('/\s+/u', ' ', $text));
 	}
